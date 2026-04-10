@@ -28,6 +28,7 @@ import chatRoutes from './routes/chat.js';
 import friendRoutes from './routes/friend.js';
 import notificationRoutes from './routes/notification.js';
 import uploadRoutes from './routes/upload.js';
+import webrtcRoutes from './routes/webrtc.js';
 
 // Import Socket.io handlers
 import setupSocketHandlers from './sockets/index.js';
@@ -36,6 +37,7 @@ import setupSocketHandlers from './sockets/index.js';
 import errorHandler from './middlewares/errorHandler.js';
 import connectDB from './config/db.js';
 import { initRedis, closeRedis, isRedisAvailable } from './config/redis.js';
+import iceServerService from './services/iceServerService.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -94,6 +96,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/webrtc', webrtcRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -114,6 +117,11 @@ app.use((req, res) => {
 // ============ SERVER STARTUP ============
 const startServer = async () => {
   try {
+    // Initialize ICE server configuration for WebRTC (STUN/TURN)
+    await iceServerService.initialize();
+    const iceServerDiag = iceServerService.getDiagnostics();
+    console.log('🌐 ICE Server Configuration:', iceServerDiag);
+
     // Connect to MongoDB
     await connectDB();
 
@@ -144,8 +152,18 @@ const startServer = async () => {
     httpServer.listen(PORT, () => {
       console.log(`\n🚀 Server running on http://localhost:${PORT}`);
       console.log(`📡 WebSocket ready for connections`);
+      console.log(`🌐 WebRTC ICE Servers: ${iceServerDiag.hasTurn ? '✓ STUN + TURN' : '⚠ STUN only'}`);
       console.log(`🔄 Environment: ${process.env.NODE_ENV || 'development'}\n`);
     });
+
+    // Periodic TURN credential refresh (every 30 minutes)
+    setInterval(async () => {
+      try {
+        await iceServerService.refreshIfNeeded();
+      } catch (error) {
+        console.error('[ICE Server] Error in refresh cycle:', error.message);
+      }
+    }, 30 * 60 * 1000);
   } catch (error) {
     console.error('❌ Failed to start server:', error.message);
     process.exit(1);
