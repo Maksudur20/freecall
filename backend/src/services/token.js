@@ -5,7 +5,7 @@
 
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { setCacheValue, getCacheValue, deleteCacheValue, isRedisAvailable } from './cache.js';
+import { setCacheValue, getCacheValue, deleteCacheValue, isRedisAvailable } from '../config/redis.js';
 
 /**
  * Generate secure OTP (6 digits)
