@@ -19,6 +19,28 @@ const UserSchema = new mongoose.Schema(
       lowercase: true,
       match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
     },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+      description: 'Whether the email has been verified by the user',
+    },
+    emailVerifiedAt: {
+      type: Date,
+      default: null,
+      description: 'Timestamp when email was verified',
+    },
+    verificationTokenHash: {
+      type: String,
+      default: null,
+      select: false,
+      description: 'Hashed email verification token (not stored plain)',
+    },
+    passwordResetTokenHash: {
+      type: String,
+      default: null,
+      select: false,
+      description: 'Hashed password reset token (not stored plain)',
+    },
     password: {
       type: String,
       required: true,
