@@ -1,0 +1,159 @@
+# 🚀 DEPLOY IN 30 MINUTES - QUICK CHECKLIST
+
+Copy-paste this into your PowerShell to start:
+
+---
+
+## STEP 1: COMMIT CODE (2 min)
+
+```powershell
+cd g:\freecall\backend
+git add .
+git commit -m "chore: production deployment"
+git push origin main
+```
+
+**Wait for completion** ✓
+
+---
+
+## STEP 2: RENDER BACKEND (10 min)
+
+1. **Go to:** https://render.com
+2. **Sign up** with GitHub
+3. **Click:** New → Web Service
+4. **Select:** your freecall repo
+5. **Name:** freecall-backend
+6. **Build:** npm install
+7. **Start:** npm start
+8. **Click:** Advanced → Add these 9 env vars:
+
+```
+MONGODB_ATLAS_URI=mongodb+srv://20maksudur00_db_user:GAwMbmq0v74lXVny@cluster0.c2l1nho.mongodb.net/freecall?retryWrites=true&w=majority
+
+CLOUDINARY_CLOUD_NAME=daxyxxsrg
+
+CLOUDINARY_API_KEY=877539114575295
+
+CLOUDINARY_API_SECRET=Bqo6kiMWIFb9iDSzUvNIm59KHcs
+
+JWT_SECRET=change-me-for-production-use-random-64-chars
+
+REFRESH_TOKEN_SECRET=change-me-for-production-use-random-64-chars
+
+CORS_ORIGIN=https://freecall-frontend.vercel.app
+
+NODE_ENV=production
+
+PORT=(leave blank)
+```
+
+9. **Click:** "Create Web Service"
+10. **Wait 3-5 min** until you see: ✓ Server running
+11. **Copy URL** from top: `https://freecall-backend.onrender.com` ← SAVE THIS!
+
+---
+
+## STEP 3: VERCEL FRONTEND (10 min)
+
+1. **Go to:** https://vercel.com
+2. **Sign up** with GitHub
+3. **Click:** Add New → Project
+4. **Select:** your freecall-frontend repo
+5. **Click:** Import
+6. **Vercel auto-detects React** ✓
+7. **Click:** Environment Variables (under build settings)
+8. **Add 2 variables:**
+
+```
+REACT_APP_API_BASE_URL=https://freecall-backend.onrender.com/api
+
+REACT_APP_SOCKET_URL=https://freecall-backend.onrender.com
+```
+
+Select: Production environment
+
+9. **Click:** Deploy
+10. **Wait 2-3 min** for build
+11. **Get URL:** `https://freecall-frontend.vercel.app` ← YOUR APP IS LIVE!
+
+---
+
+## STEP 4: TEST (5 min)
+
+### Backend Health
+```powershell
+curl https://freecall-backend.onrender.com/api/health
+```
+
+Should return: `{"status":"ok"}`
+
+### Frontend
+1. **Visit:** https://freecall-frontend.vercel.app
+2. **Register:** Create test account
+3. **Login:** Login with that account
+4. **Upload:** Upload profile picture
+5. **Chat:** Send test message
+6. **Check:** F12 → Console (no red errors)
+
+---
+
+## ✅ DONE! 🎉
+
+Your app is now **LIVE** at:
+
+👉 **https://freecall-frontend.vercel.app**
+
+Share this URL with others!
+
+---
+
+## 🆘 IF SOMETHING BREAKS
+
+### Backend won't deploy?
+→ Check Render logs for MongoDB connection error
+→ Make sure IP whitelist includes 0.0.0.0/0 in MongoDB Atlas
+
+### Frontend shows 404?
+→ Update CORS_ORIGIN on Render backend
+→ Make sure backend URL is correct in Vercel env vars
+→ Restart both services
+
+### Can't login?
+→ Check MongoDB is connected (Render logs)
+→ Check JWT_SECRET is set (not blank)
+→ Clear browser cache (Ctrl+Shift+Del)
+
+### Files won't upload?
+→ Check Cloudinary credentials on Render
+→ Check file size (< 5MB for images)
+→ Check Cloudinary API key is correct
+
+---
+
+## 📊 WHAT YOU GET
+
+✅ Real-time messaging (any number of users)
+✅ File uploads (images + videos)
+✅ User authentication (secure JWT)
+✅ User presence (online/offline)
+✅ 99.9% uptime
+✅ Global CDN (fast anywhere)
+✅ Automatic backups
+✅ Security hardened
+
+---
+
+## 💰 COST
+
+**Free Tier:** $0/month (Render suspends after 15 min)
+**Recommended:** $7/month (Render always-on)
+**Plus:** MongoDB M0 free (512MB) or M2 $57/year (5GB)
+
+---
+
+**Total time: ~30 minutes**
+**Status: READY TO DEPLOY** ✅
+
+Good luck! 🚀
+
