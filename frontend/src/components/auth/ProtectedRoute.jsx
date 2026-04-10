@@ -1,7 +1,7 @@
 // Protected Route Component
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '@store/authStore';
-import LoadingScreen from './LoadingScreen';
+import LoadingScreen from '../common/LoadingScreen';
 
 const ProtectedRoute = () => {
   const { user, isLoading } = useAuthStore();
