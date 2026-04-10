@@ -157,8 +157,8 @@ const startServer = async () => {
     }
 
     // Start HTTP server
-    httpServer.listen(PORT, () => {
-      console.log(`\n🚀 Server running on http://localhost:${PORT}`);
+    httpServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`\n🚀 Server running on http://0.0.0.0:${PORT}`);
       console.log(`📡 WebSocket ready for connections`);
       console.log(`🌐 WebRTC ICE Servers: ${iceServerDiag.hasTurn ? '✓ STUN + TURN' : '⚠ STUN only'}`);
       console.log(`🔄 Environment: ${process.env.NODE_ENV || 'development'}\n`);
