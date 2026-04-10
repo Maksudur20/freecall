@@ -1,7 +1,11 @@
 // WebRTC Manager - Handle peer connections and media streams
-// Uses Google's STUN servers for NAT traversal
+// Supports STUN and TURN servers for reliable NAT traversal
+// Dynamically fetches ICE server configuration from backend
 
-const STUN_SERVERS = [
+import { api } from './api.js';
+
+// Fallback STUN servers (always available)
+const DEFAULT_STUN_SERVERS = [
   'stun:stun.l.google.com:19302',
   'stun:stun1.l.google.com:19302',
   'stun:stun2.l.google.com:19302',
@@ -13,6 +17,9 @@ class WebRTCManager {
   constructor() {
     this.peerConnections = new Map();
     this.localStream = null;
+    this.iceServers = null;
+    this.iceServersFetchTime = null;
+    this.iceServersCacheDuration = 1 * 60 * 60 * 1000; // Cache for 1 hour
     this.mediaConstraints = {
       audio: true,
       video: {
@@ -21,21 +28,77 @@ class WebRTCManager {
         facingMode: 'user',
       },
     };
+    // Connection diagnostics
+    this.connectionStats = new Map();
+    this.connectionErrors = new Map();
   }
 
   /**
-   * Get or create RTCPeerConnection
+   * Fetch ICE servers from backend
+   * Gets both STUN and TURN servers configuration
+   * Caches result to avoid repeated API calls
+   * @returns {Promise<Array>} Array of ICE server configurations
+   */
+  async fetchIceServers() {
+    try {
+      // Check if cache is still valid
+      if (this.iceServers && this.iceServersFetchTime) {
+        const cacheAge = Date.now() - this.iceServersFetchTime;
+        if (cacheAge < this.iceServersCacheDuration) {
+          console.log('[WebRTC] Using cached ICE servers');
+          return this.iceServers;
+        }
+      }
+
+      console.log('[WebRTC] Fetching ICE servers from backend...');
+      const response = await api.get('/webrtc/ice-servers');
+
+      if (response.data && response.data.iceServers) {
+        const { primary, fallback, turnAvailable, provider } = response.data.iceServers;
+        
+        // Use primary servers, fallback to STUN if TURN not available
+        this.iceServers = turnAvailable ? primary : primary || this.getDefaultIceServers();
+        this.iceServersFetchTime = Date.now();
+
+        console.log(`[WebRTC] ICE servers loaded (Provider: ${provider}, TURN: ${turnAvailable ? 'Yes' : 'No'})`);
+        return this.iceServers;
+      }
+    } catch (error) {
+      console.warn('[WebRTC] Failed to fetch ICE servers from backend:', error.message);
+    }
+
+    // Fallback to default servers
+    return this.getDefaultIceServers();
+  }
+
+  /**
+   * Get default ICE servers (STUN only)
+   * Used as fallback when backend is unavailable
+   * @returns {Array} Array of default STUN server configurations
+   */
+  getDefaultIceServers() {
+    return DEFAULT_STUN_SERVERS.map(url => ({ urls: url }));
+  }
+
+  /**
+   * Get or create RTCPeerConnection with dynamic ICE servers
    * @param {string} callId - Unique call identifier
    * @param {boolean} initiator - Whether this peer is initiating the connection
-   * @returns {RTCPeerConnection} The peer connection
+   * @returns {Promise<RTCPeerConnection>} The peer connection
    */
-  getOrCreatePeerConnection(callId, initiator = false) {
+  async getOrCreatePeerConnection(callId, initiator = false) {
     if (this.peerConnections.has(callId)) {
       return this.peerConnections.get(callId);
     }
 
+    // Fetch ICE servers (uses cache if available)
+    const iceServers = await this.fetchIceServers();
+
     const config = {
-      iceServers: STUN_SERVERS.map(url => ({ urls: url })),
+      iceServers: iceServers,
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
     };
 
     const peerConnection = new RTCPeerConnection(config);
@@ -47,10 +110,105 @@ class WebRTCManager {
       });
     }
 
+    // Setup connection monitoring and error logging
+    this.setupConnectionMonitoring(callId, peerConnection);
+
     // Store connection
     this.peerConnections.set(callId, peerConnection);
 
     return peerConnection;
+  }
+
+  /**
+   * Setup connection state monitoring and diagnostics
+   * Tracks ICE connection state, handles failures, provides diagnostics
+   * @param {string} callId - Call ID
+   * @param {RTCPeerConnection} peerConnection - The peer connection to monitor
+   */
+  setupConnectionMonitoring(callId, peerConnection) {
+    let connectionAttempts = 0;
+    const maxAttempts = 30; // ~30 seconds with 1 second interval
+
+    // Monitor ICE connection state
+    peerConnection.addEventListener('iceconnectionstatechange', () => {
+      const state = peerConnection.iceConnectionState;
+      console.log(`[WebRTC] Call ${callId} ICE state: ${state}`);
+
+      switch (state) {
+        case 'connected':
+          console.log(`✓ Call ${callId}: ICE connection established`);
+          this.connectionStats.delete(callId); // Clear error tracking
+          break;
+        case 'failed':
+          console.error(`✗ Call ${callId}: ICE connection failed`);
+          if (!this.connectionErrors.has(callId)) {
+            this.connectionErrors.set(callId, 0);
+          }
+          this.connectionErrors.set(callId, this.connectionErrors.get(callId) + 1);
+          break;
+        case 'disconnected':
+          console.warn(`⚠ Call ${callId}: ICE connection disconnected (may reconnect)`);
+          break;
+        case 'closed':
+          console.log(`○ Call ${callId}: ICE connection closed`);
+          this.connectionStats.delete(callId);
+          this.connectionErrors.delete(callId);
+          break;
+      }
+    });
+
+    // Monitor overall connection state
+    peerConnection.addEventListener('connectionstatechange', () => {
+      const state = peerConnection.connectionState;
+      console.log(`[WebRTC] Call ${callId} connection state: ${state}`);
+    });
+
+    // Monitor signaling state
+    peerConnection.addEventListener('signalingstatechange', () => {
+      const state = peerConnection.signalingState;
+      console.log(`[WebRTC] Call ${callId} signaling state: ${state}`);
+    });
+
+    // Monitor ICE gathering state
+    peerConnection.addEventListener('icegatheringstatechange', () => {
+      const state = peerConnection.iceGatheringState;
+      console.log(`[WebRTC] Call ${callId} ICE gathering: ${state}`);
+    });
+
+    // ICE candidate monitoring for diagnostics
+    peerConnection.addEventListener('icecandidate', (event) => {
+      if (!event.candidate) {
+        console.log(`[WebRTC] Call ${callId}: ICE candidates gathering complete`);
+        return;
+      }
+
+      // Log candidate type for diagnostics
+      const candidateType = event.candidate.type;
+      const protocol = event.candidate.protocol;
+      console.log(`[WebRTC] Call ${callId}: New ICE candidate (${candidateType}, ${protocol})`);
+    });
+  }
+
+  /**
+   * Get connection diagnostics
+   * @param {string} callId - Call ID
+   * @returns {Object} Diagnostic information about the connection
+   */
+  getConnectionDiagnostics(callId) {
+    const peerConnection = this.getPeerConnection(callId);
+    if (!peerConnection) {
+      return null;
+    }
+
+    return {
+      callId,
+      connectionState: peerConnection.connectionState,
+      iceConnectionState: peerConnection.iceConnectionState,
+      iceGatheringState: peerConnection.iceGatheringState,
+      signalingState: peerConnection.signalingState,
+      errorCount: this.connectionErrors.get(callId) || 0,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   /**
@@ -147,7 +305,7 @@ class WebRTCManager {
    */
   async createOffer(callId) {
     try {
-      const peerConnection = this.getOrCreatePeerConnection(callId, true);
+      const peerConnection = await this.getOrCreatePeerConnection(callId, true);
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
@@ -169,7 +327,7 @@ class WebRTCManager {
    */
   async createAnswer(callId, offer) {
     try {
-      const peerConnection = this.getOrCreatePeerConnection(callId, false);
+      const peerConnection = await this.getOrCreatePeerConnection(callId, false);
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
 
       const answer = await peerConnection.createAnswer();
@@ -348,6 +506,71 @@ class WebRTCManager {
   cleanup() {
     this.closeAllPeerConnections();
     this.stopLocalStream();
+  }
+
+  /**
+   * Get WebRTC configuration information
+   * Used for diagnostics and debugging
+   * @returns {Promise<Object>} WebRTC configuration info
+   */
+  async getWebRTCInfo() {
+    try {
+      const iceServers = await this.fetchIceServers();
+      return {
+        iceServersCount: iceServers.length,
+        hasStun: iceServers.some(s => s.urls && (Array.isArray(s.urls) ? s.urls[0].includes('stun') : s.urls.includes('stun'))),
+        hasTurn: iceServers.some(s => s.urls && (Array.isArray(s.urls) ? s.urls[0].includes('turn') : s.urls.includes('turn'))),
+        activeCalls: this.getActiveCalls().length,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error('Error getting WebRTC info:', error);
+      return {
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
+   * Check ICE connection health
+   * Returns connection status and recommendations
+   * @param {string} callId - Call ID
+   * @returns {Object} Health check result
+   */
+  checkConnectionHealth(callId) {
+    const peerConnection = this.getPeerConnection(callId);
+    if (!peerConnection) {
+      return {
+        healthy: false,
+        message: 'Connection not found',
+      };
+    }
+
+    const iceState = peerConnection.iceConnectionState;
+    const connectionState = peerConnection.connectionState;
+    const errorCount = this.connectionErrors.get(callId) || 0;
+
+    const health = {
+      healthy: iceState === 'connected' && connectionState === 'connected',
+      iceState,
+      connectionState,
+      errorCount,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Add recommendations if unhealthy
+    if (!health.healthy) {
+      if (iceState === 'failed') {
+        health.recommendation = 'ICE connection failed - check network, firewall, or TURN server availability';
+      } else if (iceState === 'disconnected') {
+        health.recommendation = 'ICE disconnected - connection may recover automatically';
+      } else if (connectionState === 'failed') {
+        health.recommendation = 'Connection failed - try hanging up and calling again';
+      }
+    }
+
+    return health;
   }
 }
 
