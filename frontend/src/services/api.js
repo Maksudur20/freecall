@@ -67,7 +67,7 @@ export const authAPI = {
   register: (username, email, password) =>
     apiCall('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password }),
+      body: JSON.stringify({ username, email, password, confirmPassword: password }),
     }),
 
   login: (email, password) =>
