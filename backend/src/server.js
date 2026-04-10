@@ -11,6 +11,8 @@ import { dirname, join } from 'path';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { createClient } from 'redis';
 
 // Load environment variables
 dotenv.config();
@@ -33,17 +35,26 @@ import setupSocketHandlers from './sockets/index.js';
 // Import middleware
 import errorHandler from './middlewares/errorHandler.js';
 import connectDB from './config/db.js';
+import { initRedis, closeRedis, isRedisAvailable } from './config/redis.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Create HTTP server for Socket.io
 const httpServer = createServer(app);
+
+// Socket.io configuration with Redis adapter for scaling
+let redisClient = null;
+let redisPubClient = null;
+
 const io = new SocketIOServer(httpServer, {
   cors: {
     origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:5173'],
-    credentials: true
-  }
+    credentials: true,
+  },
+  transports: ['websocket', 'polling'],
+  pingInterval: 25000,
+  pingTimeout: 60000,
 });
 
 // ============ MIDDLEWARE ============
@@ -106,6 +117,29 @@ const startServer = async () => {
     // Connect to MongoDB
     await connectDB();
 
+    // Initialize Redis for caching and Socket.io scaling
+    const redis = await initRedis();
+
+    // Setup Socket.io Redis adapter for horizontal scaling
+    if (redis && isRedisAvailable()) {
+      try {
+        // Create Redis clients for pub/sub
+        redisClient = createClient({ url: process.env.REDIS_URL });
+        redisPubClient = redisClient.duplicate();
+
+        await Promise.all([redisClient.connect(), redisPubClient.connect()]);
+
+        // Attach Redis adapter to Socket.io
+        io.adapter(createAdapter(redisPubClient, redisClient));
+        console.log('✅ Socket.io Redis adapter configured for scaling');
+      } catch (error) {
+        console.warn('⚠️  Could not setup Redis adapter:', error.message);
+        console.log('ℹ️  Socket.io will work locally without Redis adapter');
+      }
+    } else {
+      console.log('ℹ️  Running Socket.io without Redis adapter (single instance mode)');
+    }
+
     // Start HTTP server
     httpServer.listen(PORT, () => {
       console.log(`\n🚀 Server running on http://localhost:${PORT}`);
@@ -121,8 +155,20 @@ const startServer = async () => {
 startServer();
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\n\n👋 Shutting down gracefully...');
+  
+  // Close Redis connections
+  if (redisClient) {
+    await redisClient.disconnect();
+  }
+  if (redisPubClient) {
+    await redisPubClient.disconnect();
+  }
+  
+  // Close main Redis connection
+  await closeRedis();
+  
   httpServer.close(() => {
     console.log('✓ Server closed');
     process.exit(0);
