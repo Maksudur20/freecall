@@ -27,7 +27,7 @@
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.5.0",
     "recharts": "^2.10.3",
-    "headless-ui": "^1.7.17",
+    "@headlessui/react": "^1.7.17",
     "react-hot-toast": "^2.4.1",
     "date-fns": "^2.30.0",
     "lodash-es": "^4.17.21",
